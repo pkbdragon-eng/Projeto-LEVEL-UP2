@@ -1,3 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Fitness RPG</title>
+</head>
+<body>
+  <h1>Fitness RPG funcionando 🚀</h1>
+</body>
+</html>
 import React, { useEffect, useMemo, useState } from "react";
 
 const STORAGE_KEY = "fitness-rpg-save-v1";
