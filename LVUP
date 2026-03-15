@@ -1,10 +1,741 @@
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>Fitness RPG</title>
-</head>
-<body>
-  <h1>Fitness RPG funcionando 🚀</h1>
-</body>
-</html>
+import React, { useEffect, useMemo, useState } from "react";
 
+const STORAGE_KEY = "fitness-rpg-save-v1";
+import { motion, AnimatePresence } from "framer-motion";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Trophy,
+  User,
+  Zap,
+  HeartPulse,
+  Brain,
+  Target,
+  ShieldCheck,
+  Activity,
+  BookOpen,
+  Dumbbell,
+  Crown,
+  Sparkles,
+  Medal,
+  Camera,
+  Flame,
+  Swords,
+  Star,
+  ChevronRight,
+} from "lucide-react";
+
+const MAX_LEVEL = 255;
+const DAILY_XP_CAP = 300;
+
+const xpForLevel = (level) => Math.floor(95 * Math.pow(level, 1.26));
+const totalXpForLevel = (level) => {
+  let total = 0;
+  for (let i = 1; i < level; i++) total += xpForLevel(i);
+  return total;
+};
+
+const levelFromXp = (xp) => {
+  let level = 1;
+  while (level < MAX_LEVEL && xp >= totalXpForLevel(level + 1)) level++;
+  return level;
+};
+
+const avatarPresets = [
+  { id: "male-light", label: "Masculino A", gender: "male", emoji: "🧑🏻‍🎽", tone: "Claro" },
+  { id: "male-medium", label: "Masculino B", gender: "male", emoji: "🧑🏽‍🎽", tone: "Médio" },
+  { id: "male-dark", label: "Masculino C", gender: "male", emoji: "🧑🏿‍🎽", tone: "Escuro" },
+  { id: "female-light", label: "Feminino A", gender: "female", emoji: "🧘🏻‍♀️", tone: "Claro" },
+  { id: "female-medium", label: "Feminino B", gender: "female", emoji: "🏃🏽‍♀️", tone: "Médio" },
+  { id: "female-dark", label: "Feminino C", gender: "female", emoji: "💪🏿", tone: "Escuro" },
+];
+
+const stageIcons = {
+  male: ["🧍‍♂️", "🧑‍🎽", "🏋️‍♂️", "🦾", "⚔️", "🔥", "👑"],
+  female: ["🧍‍♀️", "🧘‍♀️", "🏃‍♀️", "💪", "🛡️", "🔥", "👑"],
+};
+
+const muscleKeywordMap = {
+  str: [
+    "peito", "supino", "supino reto", "supino inclinado", "supino declinado", "crucifixo", "cross over",
+    "costas", "remada", "remada curvada", "puxada", "barra", "barra fixa", "levantamento", "terra",
+    "levantamento terra", "ombro", "desenvolvimento", "militar", "halter", "rosca", "biceps", "bíceps",
+    "triceps", "tríceps", "pulley", "musculacao", "musculação", "powerlifting", "carga"
+  ],
+  agi: [
+    "perna", "agachamento", "leg press", "extensora", "flexora", "passada", "lunge", "afundo",
+    "funcional", "hiit", "pliometria", "salto", "box jump", "explosao", "explosão", "velocidade",
+    "coordenação", "coordenacao", "movimento", "sprint"
+  ],
+  end: [
+    "corrida", "correr", "cardio", "esteira", "bike", "bicicleta", "spinning", "escada", "caminhada",
+    "caminhada rápida", "caminhada rapida", "remo", "ergometrico", "ergométrico", "resistencia",
+    "resistência", "fôlego", "folego", "aerobico", "aeróbico"
+  ],
+  tec: [
+    "mobilidade", "alongamento", "alongar", "yoga", "pilates", "postura", "core", "abdominal", "prancha",
+    "tecnica", "técnica", "execução", "execucao", "controle", "estabilidade"
+  ],
+};
+
+const readingKeywordMap = {
+  int: ["livro", "artigo", "leitura", "estudo", "aprendi", "resumo", "capitulo", "capítulo", "conhecimento"],
+  disc: ["constancia", "constância", "hábito", "habito", "rotina", "evolução", "evolucao", "foco"],
+};
+
+function normalizeText(text) {
+  return (text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+function detectStatBoosts(text, map, baseBoost = 2) {
+  const normalized = normalizeText(text);
+  const boosts = { str: 0, agi: 0, end: 0, int: 0, disc: 0, tec: 0 };
+
+  Object.entries(map).forEach(([stat, terms]) => {
+    terms.forEach((term) => {
+      if (normalized.includes(normalizeText(term))) {
+        boosts[stat] += baseBoost;
+      }
+    });
+  });
+
+  return boosts;
+}
+
+function getStageIcon(gender, level) {
+  const list = stageIcons[gender] || stageIcons.male;
+  const index = Math.min(list.length - 1, Math.floor(level / 40));
+  return list[index];
+}
+
+function Radar({ stats }) {
+  const labels = ["STR", "AGI", "END", "INT", "DISC", "TEC"];
+  const values = [stats.str, stats.agi, stats.end, stats.int, stats.disc, stats.tec];
+  const size = 320;
+  const center = size / 2;
+  const radius = 110;
+  const grid = [20, 40, 60, 80, 100];
+
+  const makePoints = () =>
+    values
+      .map((v, i) => {
+        const angle = -Math.PI / 2 + (i * Math.PI * 2) / labels.length;
+        const r = radius * (v / 100);
+        const x = center + Math.cos(angle) * r;
+        const y = center + Math.sin(angle) * r;
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} className="w-full max-w-[340px] mx-auto">
+      <defs>
+        <linearGradient id="radarFill" x1="0" x2="1" y1="0" y2="1">
+          <stop offset="0%" stopColor="#4338ca" stopOpacity="0.32" />
+          <stop offset="100%" stopColor="#a855f7" stopOpacity="0.22" />
+        </linearGradient>
+      </defs>
+
+      {grid.map((g) => (
+        <polygon
+          key={g}
+          points={labels
+            .map((_, i) => {
+              const angle = -Math.PI / 2 + (i * Math.PI * 2) / labels.length;
+              const r = radius * (g / 100);
+              const x = center + Math.cos(angle) * r;
+              const y = center + Math.sin(angle) * r;
+              return `${x},${y}`;
+            })
+            .join(" ")}
+          fill="none"
+          stroke="#e5e7eb"
+        />
+      ))}
+
+      {labels.map((label, i) => {
+        const angle = -Math.PI / 2 + (i * Math.PI * 2) / labels.length;
+        const x2 = center + Math.cos(angle) * radius;
+        const y2 = center + Math.sin(angle) * radius;
+        const lx = center + Math.cos(angle) * (radius + 22);
+        const ly = center + Math.sin(angle) * (radius + 22);
+        return (
+          <g key={label}>
+            <line x1={center} y1={center} x2={x2} y2={y2} stroke="#ececf1" />
+            <text x={lx} y={ly} textAnchor="middle" fontSize="12" fill="#71717a" fontWeight="600">
+              {label}
+            </text>
+          </g>
+        );
+      })}
+
+      <polygon points={makePoints()} fill="url(#radarFill)" stroke="#4f46e5" strokeWidth="2.5" />
+    </svg>
+  );
+}
+
+function StatCard({ icon, label, value, description, delta }) {
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+      <div className="flex items-center gap-3 mb-2">
+        <div className="rounded-2xl bg-gradient-to-br from-zinc-50 to-indigo-50 p-2.5 border border-zinc-200">{icon}</div>
+        <div>
+          <div className="text-sm font-semibold text-zinc-900">{label}</div>
+          <div className="text-xs text-zinc-500">{description}</div>
+        </div>
+      </div>
+      <div className="flex items-end justify-between">
+        <div className="text-2xl font-bold text-indigo-700">{value}</div>
+        {delta > 0 && <div className="text-xs font-semibold text-emerald-600">+{delta}</div>}
+      </div>
+    </div>
+  );
+}
+
+function MetricCard({ title, value, subtitle, icon }) {
+  return (
+    <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-medium text-zinc-500">{title}</span>
+        <div className="rounded-2xl bg-gradient-to-br from-zinc-50 to-indigo-50 border border-zinc-200 p-2">{icon}</div>
+      </div>
+      <div className="text-3xl font-bold tracking-tight text-zinc-950">{value}</div>
+      <div className="text-sm text-zinc-500 mt-1">{subtitle}</div>
+    </div>
+  );
+}
+
+function QuestCard({ title, reward, done }) {
+  return (
+    <div className={`rounded-3xl border p-4 ${done ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white"}`}>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="font-semibold text-zinc-900">{title}</div>
+          <div className="text-sm text-zinc-500">Recompensa: {reward} XP</div>
+        </div>
+        <div className={`text-xs font-semibold ${done ? "text-emerald-600" : "text-zinc-500"}`}>{done ? "Concluída" : "Pendente"}</div>
+      </div>
+    </div>
+  );
+}
+
+export default function FitnessRpgMvp() {
+  const [profile, setProfile] = useState({
+    nome: "Pablo",
+    altura: "1.85",
+    peso: "84",
+    idade: "28",
+    presetId: "male-medium",
+    objetivo: "Ganhar massa",
+  });
+
+  const [xp, setXp] = useState(0);
+  const [history, setHistory] = useState([]);
+  const [bonusStats, setBonusStats] = useState({ str: 0, agi: 0, end: 0, int: 0, disc: 0, tec: 0 });
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [previousLevel, setPreviousLevel] = useState(1);
+  const [dailyXp, setDailyXp] = useState(0);
+  const [lastGain, setLastGain] = useState({ str: 0, agi: 0, end: 0, int: 0, disc: 0, tec: 0 });
+
+  const [treino, setTreino] = useState({
+    nome: "Treino de perna e agachamento",
+    series: "4",
+    repeticoes: "12",
+    carga: "40",
+    foto: "selfie_treino.jpg",
+    observacao: "Treino intenso com foco em explosão e controle.",
+  });
+
+  const [leitura, setLeitura] = useState({
+    livro: "Hábitos Atômicos",
+    paginas: "18",
+    resumo: "Aprendi sobre consistência, pequenas melhorias e construção de hábitos fortes.",
+    tempo: "45",
+  });
+
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.profile) setProfile(parsed.profile);
+        if (typeof parsed.xp === "number") setXp(parsed.xp);
+        if (Array.isArray(parsed.history)) setHistory(parsed.history);
+        if (parsed.bonusStats) setBonusStats(parsed.bonusStats);
+        if (typeof parsed.previousLevel === "number") setPreviousLevel(parsed.previousLevel);
+        if (typeof parsed.dailyXp === "number") setDailyXp(parsed.dailyXp);
+        if (parsed.lastGain) setLastGain(parsed.lastGain);
+        if (parsed.treino) setTreino(parsed.treino);
+        if (parsed.leitura) setLeitura(parsed.leitura);
+      }
+    } catch (error) {
+      console.error("Erro ao carregar progresso salvo:", error);
+    } finally {
+      setIsLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    try {
+      const payload = {
+        profile,
+        xp,
+        history,
+        bonusStats,
+        previousLevel,
+        dailyXp,
+        lastGain,
+        treino,
+        leitura,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.error("Erro ao salvar progresso:", error);
+    }
+  }, [isLoaded, profile, xp, history, bonusStats, previousLevel, dailyXp, lastGain, treino, leitura]);
+
+  const selectedPreset = avatarPresets.find((p) => p.id === profile.presetId) || avatarPresets[0];
+  const level = useMemo(() => levelFromXp(xp), [xp]);
+
+  useEffect(() => {
+    if (level > previousLevel) {
+      setShowLevelUp(true);
+      const timer = setTimeout(() => setShowLevelUp(false), 1800);
+      setPreviousLevel(level);
+      return () => clearTimeout(timer);
+    }
+  }, [level, previousLevel]);
+
+  const baseStats = {
+    str: Math.min(100, Math.floor(level * 0.45)),
+    agi: Math.min(100, Math.floor(level * 0.4)),
+    end: Math.min(100, Math.floor(level * 0.42)),
+    int: Math.min(100, Math.floor(level * 0.35)),
+    disc: Math.min(100, Math.floor(level * 0.38)),
+    tec: Math.min(100, Math.floor(level * 0.36)),
+  };
+
+  const stats = {
+    str: Math.min(100, baseStats.str + bonusStats.str),
+    agi: Math.min(100, baseStats.agi + bonusStats.agi),
+    end: Math.min(100, baseStats.end + bonusStats.end),
+    int: Math.min(100, baseStats.int + bonusStats.int),
+    disc: Math.min(100, baseStats.disc + bonusStats.disc),
+    tec: Math.min(100, baseStats.tec + bonusStats.tec),
+  };
+
+  const currentLevelXp = totalXpForLevel(level);
+  const nextLevelXp = totalXpForLevel(Math.min(level + 1, MAX_LEVEL));
+  const progress = nextLevelXp > currentLevelXp ? ((xp - currentLevelXp) / (nextLevelXp - currentLevelXp)) * 100 : 100;
+  const dailyProgress = Math.min(100, (dailyXp / DAILY_XP_CAP) * 100);
+  const stageIcon = getStageIcon(selectedPreset.gender, level);
+
+  const addHistory = (text) => setHistory((h) => [text, ...h].slice(0, 12));
+
+  const applyRewards = (xpGain, statGain, historyText) => {
+    const allowedXp = Math.max(0, Math.min(xpGain, DAILY_XP_CAP - dailyXp));
+    if (allowedXp <= 0) {
+      addHistory("Limite diário de XP atingido. Volte amanhã para continuar evoluindo.");
+      return;
+    }
+
+    setXp((v) => v + allowedXp);
+    setDailyXp((v) => v + allowedXp);
+    setBonusStats((prev) => ({
+      str: prev.str + (statGain.str || 0),
+      agi: prev.agi + (statGain.agi || 0),
+      end: prev.end + (statGain.end || 0),
+      int: prev.int + (statGain.int || 0),
+      disc: prev.disc + (statGain.disc || 0),
+      tec: prev.tec + (statGain.tec || 0),
+    }));
+    setLastGain({
+      str: statGain.str || 0,
+      agi: statGain.agi || 0,
+      end: statGain.end || 0,
+      int: statGain.int || 0,
+      disc: statGain.disc || 0,
+      tec: statGain.tec || 0,
+    });
+    addHistory(`${historyText} • +${allowedXp} XP`);
+  };
+
+  const registrarTreino = () => {
+    const series = Number(treino.series || 0);
+    const reps = Number(treino.repeticoes || 0);
+    const carga = Number(treino.carga || 0);
+    const treinoText = `${treino.nome} ${treino.observacao}`;
+
+    const keywordBoosts = detectStatBoosts(treinoText, muscleKeywordMap, 2);
+    const statGain = {
+      str: keywordBoosts.str + (carga >= 30 ? 2 : 1),
+      agi: keywordBoosts.agi + (series >= 4 ? 1 : 0),
+      end: keywordBoosts.end + (reps >= 12 ? 1 : 0),
+      int: 0,
+      disc: 1,
+      tec: keywordBoosts.tec + (treino.foto ? 1 : 0),
+    };
+
+    const xpGain = 18 + Math.min(series * 2, 10) + Math.min(Math.floor(reps / 4), 5) + (treino.foto ? 4 : 0);
+    applyRewards(xpGain, statGain, `Treino registrado: ${treino.nome}`);
+  };
+
+  const registrarLeitura = () => {
+    const paginas = Number(leitura.paginas || 0);
+    const tempo = Number(leitura.tempo || 0);
+    const readingText = `${leitura.livro} ${leitura.resumo}`;
+
+    const keywordBoosts = detectStatBoosts(readingText, readingKeywordMap, 1);
+    const statGain = {
+      str: 0,
+      agi: 0,
+      end: 0,
+      int: 2 + Math.min(Math.floor(paginas / 8), 4) + keywordBoosts.int,
+      disc: 1 + (tempo >= 30 ? 1 : 0) + keywordBoosts.disc,
+      tec: 0,
+    };
+
+    const xpGain = 14 + Math.min(Math.floor(paginas / 3), 10) + (tempo >= 30 ? 4 : 0) + (leitura.resumo.length > 40 ? 4 : 0);
+    applyRewards(xpGain, statGain, `Leitura registrada: ${leitura.livro}`);
+  };
+
+  const streak = history.length >= 3 ? 3 : history.length;
+
+  const missions = [
+    { title: "Registrar 1 treino hoje", reward: 30, done: history.some((h) => h.includes("Treino registrado")) },
+    { title: "Registrar 1 leitura hoje", reward: 20, done: history.some((h) => h.includes("Leitura registrada")) },
+    { title: "Alcançar 100 XP no dia", reward: 40, done: dailyXp >= 100 },
+  ];
+
+  const resetarProgresso = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    window.location.reload();
+  };
+
+  const ranking = [
+    { nome: profile.nome || "Você", nivel: level, xp, destaque: true },
+    { nome: "Aline", nivel: 12, xp: 860 },
+    { nome: "Carlos", nivel: 10, xp: 715 },
+    { nome: "Bianca", nivel: 9, xp: 660 },
+    { nome: "Rafa", nivel: 8, xp: 590 },
+  ].sort((a, b) => b.xp - a.xp);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-white via-zinc-50 to-white p-4 md:p-8 text-zinc-950">
+      <div className="max-w-7xl mx-auto grid gap-6">
+        <div className="flex justify-end">
+          <Button variant="outline" className="rounded-2xl" onClick={resetarProgresso}>
+            Limpar progresso salvo
+          </Button>
+        </div>
+        <AnimatePresence>
+          {showLevelUp && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.95 }}
+              className="fixed top-6 left-1/2 -translate-x-1/2 z-50 rounded-full border border-indigo-200 bg-white/95 px-6 py-3 shadow-2xl backdrop-blur"
+            >
+              <div className="flex items-center gap-2 text-indigo-700 font-semibold">
+                <Sparkles className="w-4 h-4" /> Level Up! Você alcançou o nível {level}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <section className="rounded-[32px] border border-zinc-200 bg-white p-6 md:p-8 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+            <div>
+              <Badge className="rounded-full bg-indigo-600 hover:bg-indigo-600 px-4 py-1">Premium Fitness System</Badge>
+              <h1 className="text-4xl md:text-5xl font-bold mt-4 tracking-tight">Fitness RPG</h1>
+              <p className="text-zinc-500 max-w-2xl mt-3 text-base md:text-lg">
+                Evolua seu personagem através de treino, leitura, disciplina e progresso diário com uma experiência premium.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 w-full lg:w-auto">
+              <MetricCard title="Level" value={level} subtitle="Progressão atual" icon={<Crown className="w-4 h-4 text-indigo-700" />} />
+              <MetricCard title="XP" value={xp} subtitle="Acumulado" icon={<Sparkles className="w-4 h-4 text-indigo-700" />} />
+              <MetricCard title="Streak" value={`${streak}x`} subtitle="Sequência recente" icon={<Flame className="w-4 h-4 text-indigo-700" />} />
+              <MetricCard title="Missões" value={`${missions.filter((m) => m.done).length}/3`} subtitle="Concluídas hoje" icon={<Star className="w-4 h-4 text-indigo-700" />} />
+            </div>
+          </div>
+        </section>
+
+        <div className="grid xl:grid-cols-12 gap-6">
+          <Card className="xl:col-span-4 rounded-[32px] border-zinc-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)] bg-white">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-xl"><User size={18} /> Personagem</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-[28px] border border-zinc-200 bg-gradient-to-b from-white to-zinc-50 p-6 text-center shadow-sm">
+                <div className="text-7xl mb-3">{selectedPreset.emoji}</div>
+                <div className="flex items-center justify-center gap-2 text-zinc-500 mb-2">
+                  <span className="text-2xl">{stageIcon}</span>
+                  <span className="text-sm">Forma atual do nível</span>
+                </div>
+                <div className="text-2xl font-bold tracking-tight">{profile.nome}</div>
+                <div className="text-zinc-500 mt-1">{selectedPreset.label} • {selectedPreset.tone}</div>
+                <div className="text-sm text-indigo-700 font-medium mt-2">Objetivo: {profile.objetivo}</div>
+                <div className="grid grid-cols-3 gap-2 mt-5 text-sm">
+                  <div className="rounded-2xl bg-white border border-zinc-200 px-3 py-2">{profile.idade} anos</div>
+                  <div className="rounded-2xl bg-white border border-zinc-200 px-3 py-2">{profile.altura} m</div>
+                  <div className="rounded-2xl bg-white border border-zinc-200 px-3 py-2">{profile.peso} kg</div>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-sm font-medium mb-2">
+                  <span className="text-zinc-600">Progresso do nível</span>
+                  <span className="text-indigo-700">{Math.round(progress)}%</span>
+                </div>
+                <motion.div initial={{ width: 0 }} animate={{ width: "100%" }} transition={{ duration: 0.5 }}>
+                  <Progress value={progress} className="h-3" />
+                </motion.div>
+                <div className="mt-2 text-xs text-zinc-500">{xp - currentLevelXp} XP no nível atual • Próximo marco em {nextLevelXp - xp} XP</div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-sm font-medium mb-2">
+                  <span className="text-zinc-600">Meta diária de XP</span>
+                  <span className="text-indigo-700">{dailyXp}/{DAILY_XP_CAP}</span>
+                </div>
+                <Progress value={dailyProgress} className="h-2.5" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="xl:col-span-4 rounded-[32px] border-zinc-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)] bg-white">
+            <CardHeader>
+              <CardTitle className="text-xl">Perfil e avatar</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label>Nome do personagem</Label>
+                <Input value={profile.nome} onChange={(e) => setProfile({ ...profile, nome: e.target.value })} className="rounded-2xl h-11 mt-2" />
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                <div>
+                  <Label>Idade</Label>
+                  <Input value={profile.idade} onChange={(e) => setProfile({ ...profile, idade: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+                <div>
+                  <Label>Altura</Label>
+                  <Input value={profile.altura} onChange={(e) => setProfile({ ...profile, altura: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+                <div>
+                  <Label>Peso</Label>
+                  <Input value={profile.peso} onChange={(e) => setProfile({ ...profile, peso: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+                <div>
+                  <Label>Objetivo</Label>
+                  <Input value={profile.objetivo} onChange={(e) => setProfile({ ...profile, objetivo: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+              </div>
+
+              <div>
+                <Label>Escolha seu avatar</Label>
+                <div className="grid grid-cols-2 gap-3 mt-2">
+                  {avatarPresets.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setProfile({ ...profile, presetId: preset.id })}
+                      className={`rounded-3xl border p-4 text-left transition-all ${profile.presetId === preset.id ? "border-indigo-600 bg-indigo-50 shadow-md" : "border-zinc-200 bg-white hover:border-zinc-300"}`}
+                    >
+                      <div className="text-3xl mb-2">{preset.emoji}</div>
+                      <div className="font-semibold text-sm">{preset.label}</div>
+                      <div className="text-xs text-zinc-500">{preset.tone}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="xl:col-span-4 rounded-[32px] border-zinc-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)] bg-white">
+            <CardHeader>
+              <CardTitle className="text-xl">Ranking da academia</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {ranking.map((player, idx) => (
+                <div key={`${player.nome}-${idx}`} className={`rounded-3xl border p-4 flex items-center justify-between ${player.destaque ? "border-indigo-200 bg-indigo-50" : "border-zinc-200 bg-white"}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`rounded-2xl p-2 ${idx === 0 ? "bg-amber-100" : idx === 1 ? "bg-zinc-100" : idx === 2 ? "bg-orange-100" : "bg-zinc-100"}`}>
+                      {idx === 0 ? <Crown className="w-4 h-4 text-amber-600" /> : idx === 1 ? <Medal className="w-4 h-4 text-zinc-600" /> : idx === 2 ? <Trophy className="w-4 h-4 text-orange-600" /> : <User className="w-4 h-4 text-zinc-600" />}
+                    </div>
+                    <div>
+                      <div className="font-semibold">{player.nome}</div>
+                      <div className="text-xs text-zinc-500">Nível {player.nivel}</div>
+                    </div>
+                  </div>
+                  <div className="text-sm font-semibold text-indigo-700">{player.xp} XP</div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid xl:grid-cols-12 gap-6">
+          <Card className="xl:col-span-7 rounded-[32px] border-zinc-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)] bg-white">
+            <CardHeader>
+              <CardTitle className="text-xl">Atributos do personagem</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Radar stats={stats} />
+              <div className="grid md:grid-cols-3 gap-4 mt-6">
+                <StatCard icon={<Zap size={16} className="text-indigo-700" />} label="STR" value={stats.str} description="Força" delta={lastGain.str} />
+                <StatCard icon={<Activity size={16} className="text-indigo-700" />} label="AGI" value={stats.agi} description="Agilidade" delta={lastGain.agi} />
+                <StatCard icon={<HeartPulse size={16} className="text-indigo-700" />} label="END" value={stats.end} description="Resistência" delta={lastGain.end} />
+                <StatCard icon={<Brain size={16} className="text-indigo-700" />} label="INT" value={stats.int} description="Conhecimento" delta={lastGain.int} />
+                <StatCard icon={<Target size={16} className="text-indigo-700" />} label="DISC" value={stats.disc} description="Disciplina" delta={lastGain.disc} />
+                <StatCard icon={<ShieldCheck size={16} className="text-indigo-700" />} label="TEC" value={stats.tec} description="Técnica" delta={lastGain.tec} />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="xl:col-span-5 rounded-[32px] border-zinc-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)] bg-white">
+            <CardHeader>
+              <CardTitle className="text-xl">Missões diárias</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {missions.map((mission, idx) => (
+                <QuestCard key={idx} title={mission.title} reward={mission.reward} done={mission.done} />
+              ))}
+              <div className="rounded-3xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-indigo-50 p-5 mt-4">
+                <div className="text-sm font-semibold text-zinc-900 mb-2">Cartão do jogador</div>
+                <div className="rounded-3xl bg-white border border-zinc-200 p-4 shadow-sm">
+                  <div className="flex items-center gap-4">
+                    <div className="text-5xl">{selectedPreset.emoji}</div>
+                    <div>
+                      <div className="font-bold text-lg">{profile.nome}</div>
+                      <div className="text-sm text-zinc-500">Level {level} • {xp} XP</div>
+                      <div className="text-xs text-zinc-500 mt-1">STR {stats.str} • AGI {stats.agi} • INT {stats.int}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid xl:grid-cols-12 gap-6">
+          <Card className="xl:col-span-6 rounded-[32px] border-zinc-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)] bg-white">
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center gap-2"><Dumbbell className="w-5 h-5" /> Registrar treino</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label>Nome do treino</Label>
+                <Input value={treino.nome} onChange={(e) => setTreino({ ...treino, nome: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                <div className="text-xs text-zinc-500 mt-1">Ex.: treino de perna, agachamento, corrida, mobilidade, supino, costas.</div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                <div>
+                  <Label>Séries</Label>
+                  <Input value={treino.series} onChange={(e) => setTreino({ ...treino, series: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+                <div>
+                  <Label>Repetições</Label>
+                  <Input value={treino.repeticoes} onChange={(e) => setTreino({ ...treino, repeticoes: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+                <div>
+                  <Label>Carga (kg)</Label>
+                  <Input value={treino.carga} onChange={(e) => setTreino({ ...treino, carga: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+                <div>
+                  <Label>Foto</Label>
+                  <Input value={treino.foto} onChange={(e) => setTreino({ ...treino, foto: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+              </div>
+
+              <div>
+                <Label>Observação</Label>
+                <Textarea value={treino.observacao} onChange={(e) => setTreino({ ...treino, observacao: e.target.value })} className="rounded-2xl mt-2 min-h-[110px]" />
+              </div>
+
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                O sistema interpreta automaticamente palavras-chave do treino e distribui ganhos entre STR, AGI, END, DISC e TEC.
+              </div>
+
+              <Button className="w-full h-12 rounded-2xl text-base bg-indigo-600 hover:bg-indigo-700" onClick={registrarTreino}>
+                <Camera className="w-4 h-4 mr-2" /> Validar treino e ganhar XP
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="xl:col-span-6 rounded-[32px] border-zinc-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)] bg-white">
+            <CardHeader>
+              <CardTitle className="text-xl flex items-center gap-2"><BookOpen className="w-5 h-5" /> Registrar leitura</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label>Livro</Label>
+                <Input value={leitura.livro} onChange={(e) => setLeitura({ ...leitura, livro: e.target.value })} className="rounded-2xl h-11 mt-2" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Páginas lidas</Label>
+                  <Input value={leitura.paginas} onChange={(e) => setLeitura({ ...leitura, paginas: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+                <div>
+                  <Label>Tempo (min)</Label>
+                  <Input value={leitura.tempo} onChange={(e) => setLeitura({ ...leitura, tempo: e.target.value })} className="rounded-2xl h-11 mt-2" />
+                </div>
+              </div>
+
+              <div>
+                <Label>Resumo do que leu</Label>
+                <Textarea value={leitura.resumo} onChange={(e) => setLeitura({ ...leitura, resumo: e.target.value })} className="rounded-2xl mt-2 min-h-[140px]" />
+              </div>
+
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                Leitura aumenta principalmente INT e DISC. Resumos mais completos, mais páginas e mais tempo melhoram o ganho.
+              </div>
+
+              <Button variant="outline" className="w-full h-12 rounded-2xl text-base border-zinc-300" onClick={registrarLeitura}>
+                <ChevronRight className="w-4 h-4 mr-2" /> Salvar leitura e ganhar XP
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="rounded-[32px] border-zinc-200 shadow-[0_18px_50px_rgba(15,23,42,0.06)] bg-white">
+          <CardHeader>
+            <CardTitle className="text-xl flex items-center gap-2"><Swords className="w-5 h-5" /> Histórico recente</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3">
+              {history.length === 0 ? (
+                <div className="rounded-3xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-500">
+                  Nenhuma ação registrada ainda.
+                </div>
+              ) : (
+                history.map((item, i) => (
+                  <div key={i} className="rounded-3xl border border-zinc-200 bg-zinc-50 px-4 py-4 text-zinc-700">
+                    {item}
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
